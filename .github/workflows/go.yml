@@ -82,24 +82,30 @@ jobs:
         for artifact in \
             regbot-darwin-amd64 \
             regbot-darwin-arm64 \
+            regbot-freebsd-amd64 \
             regbot-linux-amd64 \
             regbot-linux-arm64 \
             regbot-linux-ppc64le \
             regbot-linux-s390x \
+            regbot-linux-riscv64 \
             regbot-windows-amd64.exe \
             regctl-darwin-amd64 \
             regctl-darwin-arm64 \
+            regctl-freebsd-amd64 \
             regctl-linux-amd64 \
             regctl-linux-arm64 \
             regctl-linux-ppc64le \
             regctl-linux-s390x \
+            regctl-linux-riscv64 \
             regctl-windows-amd64.exe \
             regsync-darwin-amd64 \
             regsync-darwin-arm64 \
+            regsync-freebsd-amd64 \
             regsync-linux-amd64 \
             regsync-linux-arm64 \
             regsync-linux-ppc64le \
             regsync-linux-s390x \
+            regsync-linux-riscv64 \
             regsync-windows-amd64.exe \
           ; do
           cosign sign-blob -y --output-signature "${artifact%.exe}.sig" --output-certificate "${artifact%.exe}.pem" "${artifact}"
@@ -132,24 +138,30 @@ jobs:
         files: |
           ./artifacts/regbot-darwin-amd64
           ./artifacts/regbot-darwin-arm64
+          ./artifacts/regbot-freebsd-amd64
           ./artifacts/regbot-linux-amd64
           ./artifacts/regbot-linux-arm64
           ./artifacts/regbot-linux-ppc64le
           ./artifacts/regbot-linux-s390x
+          ./artifacts/regbot-linux-riscv64
           ./artifacts/regbot-windows-amd64.exe
           ./artifacts/regctl-darwin-amd64
           ./artifacts/regctl-darwin-arm64
+          ./artifacts/regctl-freebsd-amd64
           ./artifacts/regctl-linux-amd64
           ./artifacts/regctl-linux-arm64
           ./artifacts/regctl-linux-ppc64le
           ./artifacts/regctl-linux-s390x
+          ./artifacts/regctl-linux-riscv64
           ./artifacts/regctl-windows-amd64.exe
           ./artifacts/regsync-darwin-amd64
           ./artifacts/regsync-darwin-arm64
+          ./artifacts/regsync-freebsd-amd64
           ./artifacts/regsync-linux-amd64
           ./artifacts/regsync-linux-arm64
           ./artifacts/regsync-linux-ppc64le
           ./artifacts/regsync-linux-s390x
+          ./artifacts/regsync-linux-riscv64
           ./artifacts/regsync-windows-amd64.exe
           ./artifacts/metadata.tgz
 
