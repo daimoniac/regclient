@@ -93,7 +93,10 @@ func TestProcess(t *testing.T) {
 		regclient.WithConfigHost(rcHosts...),
 		regclient.WithRegOpts(reg.WithDelay(delayInit, delayMax)),
 	)
-	pq := pqueue.New(pqueue.Opts[throttle]{Max: 1})
+	pq := pqueue.New(pqueue.Opts[throttle]{
+		Max:  1,
+		Next: throttleNext,
+	})
 	confBytes := `
 version: 1
 defaults:
@@ -1769,7 +1772,7 @@ func TestConfigCleanupDefaults(t *testing.T) {
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			syncSetDefaults(&tc.sync, tc.defaults)
-			
+
 			// Check CleanupTags
 			if tc.sync.CleanupTags == nil && tc.expect.CleanupTags != nil {
 				t.Errorf("CleanupTags is nil, expected %v", *tc.expect.CleanupTags)
@@ -1792,12 +1795,12 @@ func TestMatchesExclusionPattern(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		tag             string
-		patterns        []string
-		expectMatch     bool
-		expectPattern   string
-		expectError     bool
+		name          string
+		tag           string
+		patterns      []string
+		expectMatch   bool
+		expectPattern string
+		expectError   bool
 	}{
 		// Custom exclusion patterns tests (8.2)
 		{
@@ -1987,7 +1990,10 @@ func TestCleanupTagIdentification(t *testing.T) {
 		regclient.WithConfigHost(rcHosts...),
 		regclient.WithRegOpts(reg.WithDelay(delayInit, delayMax)),
 	)
-	pq := pqueue.New(pqueue.Opts[throttle]{Max: 1})
+	pq := pqueue.New(pqueue.Opts[throttle]{
+		Max:  1,
+		Next: throttleNext,
+	})
 
 	confBytes := `
 version: 1
@@ -2012,11 +2018,11 @@ defaults:
 	d3 := m3.GetDescriptor().Digest
 
 	tests := []struct {
-		name            string
-		setupSync       ConfigSync
-		cleanupSync     ConfigSync
-		expectTags      map[string]digest.Digest
-		expectMissing   []string
+		name          string
+		setupSync     ConfigSync
+		cleanupSync   ConfigSync
+		expectTags    map[string]digest.Digest
+		expectMissing []string
 	}{
 		{
 			name: "tags matching filters are preserved",
@@ -2213,7 +2219,10 @@ func TestCleanupSyncTypes(t *testing.T) {
 		regclient.WithConfigHost(rcHosts...),
 		regclient.WithRegOpts(reg.WithDelay(delayInit, delayMax)),
 	)
-	pq := pqueue.New(pqueue.Opts[throttle]{Max: 1})
+	pq := pqueue.New(pqueue.Opts[throttle]{
+		Max:  1,
+		Next: throttleNext,
+	})
 
 	confBytes := `
 version: 1
@@ -2392,7 +2401,10 @@ func TestCleanupErrorHandling(t *testing.T) {
 		regclient.WithConfigHost(rcHosts...),
 		regclient.WithRegOpts(reg.WithDelay(delayInit, delayMax)),
 	)
-	pq := pqueue.New(pqueue.Opts[throttle]{Max: 1})
+	pq := pqueue.New(pqueue.Opts[throttle]{
+		Max:  1,
+		Next: throttleNext,
+	})
 
 	confBytes := `
 version: 1
@@ -2490,7 +2502,7 @@ defaults:
 
 			// Run cleanup
 			syncSetDefaults(&tc.cleanupSync, conf.Defaults)
-			
+
 			// For context cancellation test, use a cancelled context
 			testCtx := ctx
 			if tc.name == "cleanup handles context cancellation" {
@@ -2498,7 +2510,7 @@ defaults:
 				cancel()
 				testCtx = cancelCtx
 			}
-			
+
 			err = rootOpts.process(testCtx, tc.cleanupSync, actionCopy)
 
 			// Verify error expectation
@@ -2510,6 +2522,175 @@ defaults:
 				if err != nil && !errors.Is(err, ErrCanceled) {
 					t.Errorf("unexpected error: %v", err)
 				}
+			}
+		})
+	}
+}
+
+// TestThrottlePriority tests that the throttle priority mechanism works correctly
+// ensuring that actionMissing tasks are prioritized over actionCopy tasks
+func TestThrottlePriority(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Create a priority queue with the throttleNext function
+	q := pqueue.New(pqueue.Opts[throttle]{
+		Max:  1, // Only allow 1 at a time for clearer testing
+		Next: throttleNext,
+	})
+
+	// Track the order in which tasks are processed
+	processed := make(chan int, 10)
+
+	// Acquire one slot to fill the queue
+	done0, err := q.Acquire(ctx, throttle{priority: 0})
+	if err != nil {
+		t.Fatalf("failed to acquire slot 0: %v", err)
+	}
+
+	// Queue up tasks with different priorities
+	// Task 2: normal priority (0)
+	go func() {
+		done, err := q.Acquire(ctx, throttle{priority: 0})
+		if err != nil {
+			t.Errorf("task 2 acquire failed: %v", err)
+			return
+		}
+		processed <- 2
+		time.Sleep(5 * time.Millisecond) // small delay to prevent immediate completion
+		done()
+	}()
+
+	// Task 3: high priority (1) - should jump ahead
+	time.Sleep(10 * time.Millisecond) // ensure task 2 queues first
+	go func() {
+		done, err := q.Acquire(ctx, throttle{priority: 1})
+		if err != nil {
+			t.Errorf("task 3 acquire failed: %v", err)
+			return
+		}
+		processed <- 3
+		time.Sleep(5 * time.Millisecond)
+		done()
+	}()
+
+	// Task 4: normal priority (0)
+	time.Sleep(10 * time.Millisecond)
+	go func() {
+		done, err := q.Acquire(ctx, throttle{priority: 0})
+		if err != nil {
+			t.Errorf("task 4 acquire failed: %v", err)
+			return
+		}
+		processed <- 4
+		time.Sleep(5 * time.Millisecond)
+		done()
+	}()
+
+	// Task 5: high priority (1) - should also jump ahead
+	time.Sleep(10 * time.Millisecond)
+	go func() {
+		done, err := q.Acquire(ctx, throttle{priority: 1})
+		if err != nil {
+			t.Errorf("task 5 acquire failed: %v", err)
+			return
+		}
+		processed <- 5
+		time.Sleep(5 * time.Millisecond)
+		done()
+	}()
+
+	// Wait for tasks to queue up
+	time.Sleep(50 * time.Millisecond)
+
+	// Release the first slot and observe processing order
+	done0()
+
+	// Collect the processing order
+	var order []int
+	timeout := time.After(2 * time.Second)
+	for i := 0; i < 4; i++ {
+		select {
+		case id := <-processed:
+			order = append(order, id)
+		case <-timeout:
+			t.Fatalf("timeout waiting for tasks to complete, got %v", order)
+		}
+	}
+
+	// Verify that high priority tasks (3, 5) were processed before normal tasks (2, 4)
+	// Expected order: either [3, 5, 2, 4] or [5, 3, 2, 4] depending on timing
+	// But all high priority (3, 5) should come before all normal (2, 4)
+	firstNormalIdx := -1
+	lastHighIdx := -1
+	for i, id := range order {
+		if id == 2 || id == 4 {
+			if firstNormalIdx == -1 {
+				firstNormalIdx = i
+			}
+		}
+		if id == 3 || id == 5 {
+			lastHighIdx = i
+		}
+	}
+
+	if firstNormalIdx != -1 && lastHighIdx > firstNormalIdx {
+		t.Errorf("priority queue failed: high priority task at index %d came after normal priority task at index %d, order: %v",
+			lastHighIdx, firstNormalIdx, order)
+	}
+
+	t.Logf("Tasks processed in order: %v (high priority tasks correctly prioritized)", order)
+}
+
+// TestThrottleNextFunction tests the throttleNext function directly
+func TestThrottleNextFunction(t *testing.T) {
+	tests := []struct {
+		name     string
+		queued   []*throttle
+		expected int
+	}{
+		{
+			name:     "empty queue",
+			queued:   []*throttle{},
+			expected: 0,
+		},
+		{
+			name:     "single item",
+			queued:   []*throttle{{priority: 0}},
+			expected: 0,
+		},
+		{
+			name:     "all same priority",
+			queued:   []*throttle{{priority: 0}, {priority: 0}, {priority: 0}},
+			expected: 0, // FIFO - returns first item
+		},
+		{
+			name:     "high priority at end",
+			queued:   []*throttle{{priority: 0}, {priority: 0}, {priority: 1}},
+			expected: 2,
+		},
+		{
+			name:     "high priority in middle",
+			queued:   []*throttle{{priority: 0}, {priority: 1}, {priority: 0}},
+			expected: 1,
+		},
+		{
+			name:     "high priority at start",
+			queued:   []*throttle{{priority: 1}, {priority: 0}, {priority: 0}},
+			expected: 0,
+		},
+		{
+			name:     "multiple high priority",
+			queued:   []*throttle{{priority: 0}, {priority: 1}, {priority: 1}},
+			expected: 1, // returns first high priority (FIFO within same priority)
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := throttleNext(tc.queued, nil)
+			if result != tc.expected {
+				t.Errorf("expected index %d, got %d", tc.expected, result)
 			}
 		})
 	}

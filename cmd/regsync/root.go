@@ -52,7 +52,24 @@ const (
 
 // throttle is used for limiting concurrent sync steps from running.
 // This is separate from the concurrency limits in regclient itself.
-type throttle struct{}
+type throttle struct {
+	priority int // 0 = normal sync, 1 = missing/initial sync (higher priority)
+}
+
+// throttleNext returns the index of the highest priority queued item.
+// Items with higher priority values are processed first.
+// Within the same priority, maintains FIFO order.
+func throttleNext(queued, active []*throttle) int {
+	maxPriority := 0
+	maxIndex := 0
+	for i, q := range queued {
+		if q.priority > maxPriority {
+			maxPriority = q.priority
+			maxIndex = i
+		}
+	}
+	return maxIndex
+}
 
 type rootOpts struct {
 	confFile   string
@@ -390,7 +407,10 @@ func (opts *rootOpts) loadConf() error {
 	}
 	opts.log.Debug("Configuring parallel settings",
 		slog.Int("concurrent", concurrent))
-	opts.throttle = pqueue.New(pqueue.Opts[throttle]{Max: concurrent})
+	opts.throttle = pqueue.New(pqueue.Opts[throttle]{
+		Max:  concurrent,
+		Next: throttleNext,
+	})
 	// set the regclient, loading docker creds unless disabled, and inject logins from config file
 	rcOpts := []regclient.Opt{
 		regclient.WithSlog(opts.log),
@@ -623,7 +643,7 @@ func (opts *rootOpts) processRepo(ctx context.Context, s ConfigSync, src, tgt st
 			}
 		}
 	}
-	
+
 	// Run cleanup if enabled (only for actionCopy, not for image sync type)
 	if action == actionCopy && s.CleanupTags != nil && *s.CleanupTags {
 		opts.log.Debug("Cleanup enabled for target",
@@ -639,7 +659,7 @@ func (opts *rootOpts) processRepo(ctx context.Context, s ConfigSync, src, tgt st
 			}
 		}
 	}
-	
+
 	return errors.Join(errs...)
 }
 
@@ -753,7 +773,11 @@ func (opts *rootOpts) processRef(ctx context.Context, s ConfigSync, src, tgt ref
 	}
 
 	// wait for parallel tasks
-	throttleDone, err := opts.throttle.Acquire(ctx, throttle{})
+	priority := 0
+	if action == actionMissing {
+		priority = 1 // prioritize missing/initial syncs
+	}
+	throttleDone, err := opts.throttle.Acquire(ctx, throttle{priority: priority})
 	if err != nil {
 		return fmt.Errorf("failed to acquire throttle: %w", err)
 	}
@@ -783,7 +807,7 @@ func (opts *rootOpts) processRef(ctx context.Context, s ConfigSync, src, tgt ref
 				return ErrCanceled
 			case <-time.After(s.RateLimit.Retry):
 			}
-			throttleDone, err = opts.throttle.Acquire(ctx, throttle{})
+			throttleDone, err = opts.throttle.Acquire(ctx, throttle{priority: priority})
 			if err != nil {
 				return fmt.Errorf("failed to reacquire throttle: %w", err)
 			}
