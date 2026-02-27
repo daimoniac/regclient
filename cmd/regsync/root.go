@@ -228,9 +228,7 @@ func (opts *rootOpts) runOnce(cmd *cobra.Command, args []string) error {
 	errs := []error{}
 	for _, s := range opts.conf.Sync {
 		if opts.conf.Defaults.Parallel > 0 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				err := opts.process(ctx, s, action)
 				if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, ErrCanceled) {
 					if opts.abortOnErr {
@@ -240,7 +238,7 @@ func (opts *rootOpts) runOnce(cmd *cobra.Command, args []string) error {
 					errs = append(errs, err)
 					mu.Unlock()
 				}
-			}()
+			})
 		} else {
 			err := opts.process(ctx, s, action)
 			if err != nil {
@@ -310,9 +308,7 @@ func (opts *rootOpts) runServer(cmd *cobra.Command, args []string) error {
 			}
 			// immediately copy any images that are missing from target
 			if opts.conf.Defaults.Parallel > 0 {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					err := opts.process(ctx, s, actionMissing)
 					if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, ErrCanceled) {
 						if opts.abortOnErr {
@@ -322,7 +318,7 @@ func (opts *rootOpts) runServer(cmd *cobra.Command, args []string) error {
 						errs = append(errs, err)
 						mu.Unlock()
 					}
-				}()
+				})
 			} else {
 				err := opts.process(ctx, s, actionMissing)
 				if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, ErrCanceled) {
