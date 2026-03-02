@@ -342,6 +342,16 @@ func (opts *rootOpts) runServer(cmd *cobra.Command, args []string) error {
 	if ctx.Err() != nil {
 		return errors.Join(errs...)
 	}
+	// run cleanup on startup to ensure defined state
+	cleanupErr := opts.runCleanupForAllTargets(ctx)
+	if cleanupErr != nil {
+		opts.log.Error("Startup cleanup encountered errors",
+			slog.String("error", cleanupErr.Error()))
+		errs = append(errs, cleanupErr)
+		if opts.abortOnErr {
+			return errors.Join(errs...)
+		}
+	}
 	// start the server and wait until interrupted
 	c.Start()
 	done := ctx.Done()

@@ -91,13 +91,13 @@ func (opts *rootOpts) cleanupTags(ctx context.Context, s ConfigSync, tgt string)
 	// Build list of "wanted" tags from all sync entries with this target
 	wantedTags := []string{}
 	allSetsEmpty := true
-	
+
 	for _, syncEntry := range syncEntries {
 		sets := syncEntry.TagSets
 		if len(syncEntry.Tags.Allow) > 0 || len(syncEntry.Tags.Deny) > 0 || len(syncEntry.Tags.SemverRange) > 0 {
 			sets = append(sets, syncEntry.Tags)
 		}
-		
+
 		if len(sets) > 0 {
 			allSetsEmpty = false
 			for _, set := range sets {
@@ -120,7 +120,7 @@ func (opts *rootOpts) cleanupTags(ctx context.Context, s ConfigSync, tgt string)
 			}
 		}
 	}
-	
+
 	// If all sync entries have no filters, all tags are wanted
 	if allSetsEmpty {
 		wantedTags = tTagsList
@@ -194,6 +194,55 @@ func (opts *rootOpts) cleanupTags(ctx context.Context, s ConfigSync, tgt string)
 	if len(tagsToDelete) == 0 {
 		opts.log.Debug("No tags require cleanup",
 			slog.String("target", tgtRef.CommonName()))
+	}
+
+	return errors.Join(errs...)
+}
+
+// runCleanupForAllTargets performs cleanup on startup for all targets where cleanup is enabled.
+// This ensures the repository is in a defined state immediately after configuration changes.
+// It deduplicates targets to avoid running cleanup multiple times for targets with multiple sync entries.
+func (opts *rootOpts) runCleanupForAllTargets(ctx context.Context) error {
+	// Collect unique targets and find at least one sync entry per target where cleanup is enabled
+	targetMap := make(map[string]ConfigSync)
+	for _, s := range opts.conf.Sync {
+		tgt := s.Target
+		if tgt == "" {
+			continue
+		}
+		// Only run cleanup if enabled for this sync entry
+		if s.CleanupTags != nil && *s.CleanupTags {
+			targetMap[tgt] = s
+		}
+	}
+
+	if len(targetMap) == 0 {
+		opts.log.Debug("No targets with cleanup enabled on startup")
+		return nil
+	}
+
+	opts.log.Info("Running startup cleanup",
+		slog.Int("targets", len(targetMap)))
+
+	var errs []error
+	for tgt, s := range targetMap {
+		// Check context before each cleanup
+		select {
+		case <-ctx.Done():
+			errs = append(errs, ErrCanceled)
+			return errors.Join(errs...)
+		default:
+		}
+
+		opts.log.Debug("Starting cleanup on startup",
+			slog.String("target", tgt))
+		err := opts.cleanupTags(ctx, s, tgt)
+		if err != nil {
+			opts.log.Error("Startup cleanup failed",
+				slog.String("target", tgt),
+				slog.String("error", err.Error()))
+			errs = append(errs, err)
+		}
 	}
 
 	return errors.Join(errs...)
