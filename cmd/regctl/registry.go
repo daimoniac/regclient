@@ -248,8 +248,7 @@ func (opts *registryOpts) runRegistryConfig(cmd *cobra.Command, args []string) e
 	if len(args) > 0 {
 		h, ok := c.Hosts[args[0]]
 		if !ok {
-			opts.rootOpts.log.Warn("No configuration found for registry",
-				slog.String("registry", args[0]))
+			fmt.Fprintf(cmd.OutOrStdout(), "No configuration found for registry %s\n", args[0])
 			return nil
 		}
 		// load the username from a credential helper

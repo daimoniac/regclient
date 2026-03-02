@@ -764,7 +764,7 @@ func (opts *artifactOpts) runArtifactPut(cmd *cobra.Command, args []string) erro
 	}
 	if opts.artifactType == "" {
 		if !hasConfig || opts.artifactConfigMT == mediatype.OCI1Empty {
-			opts.rootOpts.log.Warn("using default value for artifact-type is not recommended")
+			fmt.Fprintf(cmd.OutOrStdout(), "using default value for artifact-type is not recommended\n")
 			opts.artifactType = defaultMTArtifact
 		}
 	}
