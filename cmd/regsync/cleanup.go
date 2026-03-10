@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"regexp"
 	"slices"
+	"strings"
 
+	"github.com/regclient/regclient"
+	"github.com/regclient/regclient/types/errs"
 	"github.com/regclient/regclient/types/ref"
 )
 
@@ -49,6 +52,35 @@ func (opts *rootOpts) findSyncEntriesForTarget(tgt string) []ConfigSync {
 		}
 	}
 	return entries
+}
+
+// digestTagRe matches cosign-style digest tags of the form "<alg>-<hex>.(att|sig)",
+// e.g. "sha256-abc123.sig" or "sha256-abc123.att".
+var digestTagRe = regexp.MustCompile(`^([a-z0-9]+)-([0-9a-f]+)\.(att|sig)$`)
+
+// isOrphanedDigestTag returns true when tag is a cosign-style .att or .sig tag
+// whose referenced image digest is no longer present in the repository.
+// It returns false (never orphaned) when the digest still resolves, and an
+// error only for unexpected failures.
+func isOrphanedDigestTag(ctx context.Context, rc *regclient.RegClient, tgtRef ref.Ref, tag string) (bool, error) {
+	m := digestTagRe.FindStringSubmatch(tag)
+	if m == nil {
+		// Not a digest tag at all – leave it to normal cleanup logic.
+		return false, nil
+	}
+	// Reconstruct the digest: replace the first "-" separator with ":".
+	// m[1] = algorithm (e.g. "sha256"), m[2] = hex, m[3] = "att" or "sig".
+	digestStr := m[1] + ":" + m[2]
+	digestRef := tgtRef.SetTag("").SetDigest(digestStr)
+	_, err := rc.ManifestHead(ctx, digestRef)
+	if err == nil {
+		// Digest still exists – not orphaned.
+		return false, nil
+	}
+	if errors.Is(err, errs.ErrNotFound) || strings.Contains(err.Error(), "404") {
+		return true, nil
+	}
+	return false, err
 }
 
 // cleanupTags removes tags from target repository that don't match filters
@@ -137,6 +169,22 @@ func (opts *rootOpts) cleanupTags(ctx context.Context, s ConfigSync, tgt string)
 	for _, tag := range tTagsList {
 		// Check if tag is wanted (matches filters from any sync entry)
 		if slices.Contains(wantedTags, tag) {
+			// Even wanted tags should be cleaned up if they are orphaned .att/.sig tags.
+			orphaned, oErr := isOrphanedDigestTag(ctx, opts.rc, tgtRef, tag)
+			if oErr != nil {
+				opts.log.Error("Failed checking orphaned digest tag",
+					slog.String("target", tgtRef.CommonName()),
+					slog.String("tag", tag),
+					slog.String("error", oErr.Error()))
+				return oErr
+			}
+			if !orphaned {
+				continue
+			}
+			opts.log.Debug("Orphaned digest tag removed despite being in wanted list",
+				slog.String("target", tgtRef.CommonName()),
+				slog.String("tag", tag))
+			tagsToDelete = append(tagsToDelete, tag)
 			continue
 		}
 
@@ -150,11 +198,27 @@ func (opts *rootOpts) cleanupTags(ctx context.Context, s ConfigSync, tgt string)
 			return err
 		}
 		if excluded {
-			opts.log.Debug("Tag excluded from cleanup",
+			// Even if the tag matches an exclusion pattern, remove it when it is an
+			// orphaned .att/.sig tag (its referenced image digest is gone).
+			orphaned, oErr := isOrphanedDigestTag(ctx, opts.rc, tgtRef, tag)
+			if oErr != nil {
+				opts.log.Error("Failed checking orphaned digest tag",
+					slog.String("target", tgtRef.CommonName()),
+					slog.String("tag", tag),
+					slog.String("error", oErr.Error()))
+				return oErr
+			}
+			if !orphaned {
+				opts.log.Debug("Tag excluded from cleanup",
+					slog.String("target", tgtRef.CommonName()),
+					slog.String("tag", tag),
+					slog.String("pattern", pattern))
+				continue
+			}
+			opts.log.Debug("Orphaned digest tag overrides exclusion pattern",
 				slog.String("target", tgtRef.CommonName()),
 				slog.String("tag", tag),
 				slog.String("pattern", pattern))
-			continue
 		}
 
 		// Tag should be deleted

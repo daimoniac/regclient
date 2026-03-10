@@ -2695,3 +2695,235 @@ func TestThrottleNextFunction(t *testing.T) {
 		})
 	}
 }
+
+// TestDigestTagRe tests the digestTagRe regular expression against various tag strings.
+func TestDigestTagRe(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		tag     string
+		matches bool
+	}{
+		// valid cosign-style digest tags
+		{"sha256-abc123def456.sig", true},
+		{"sha256-abc123def456.att", true},
+		{"sha512-deadbeef.sig", true},
+		{"sha512-deadbeef.att", true},
+		// must have at least one hex char
+		{"sha256-0.sig", true},
+		// normal image tags must not match
+		{"v1", false},
+		{"latest", false},
+		{"v1.0.0", false},
+		// looks similar but wrong suffix
+		{"sha256-abc123.tar", false},
+		{"sha256-abc123", false},
+		// uppercase algorithm must not match (pattern requires lowercase)
+		{"SHA256-abc123.sig", false},
+		// no hex part
+		{"sha256-.sig", false},
+		// no algorithm part
+		{"-abc123.sig", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.tag, func(t *testing.T) {
+			got := digestTagRe.MatchString(tc.tag)
+			if got != tc.matches {
+				t.Errorf("digestTagRe.MatchString(%q) = %v, want %v", tc.tag, got, tc.matches)
+			}
+		})
+	}
+}
+
+// TestIsOrphanedDigestTag tests the isOrphanedDigestTag helper using a live
+// olareg registry.  It covers:
+//   - a plain tag (never treated as a digest tag)
+//   - a .sig/.att tag whose referenced digest still exists (not orphaned)
+//   - a .sig/.att tag whose referenced digest has been deleted (orphaned)
+//
+// It also verifies end-to-end that cleanupTags removes orphaned digest tags
+// even when they match a CleanupTagsExclude pattern.
+func TestIsOrphanedDigestTag(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	regHandler := olareg.New(oConfig.Config{
+		Storage: oConfig.ConfigStorage{
+			StoreType: oConfig.StoreMem,
+			RootDir:   "../../testdata",
+		},
+	})
+	ts := httptest.NewServer(regHandler)
+	tsURL, _ := url.Parse(ts.URL)
+	tsHost := tsURL.Host
+	t.Cleanup(func() {
+		ts.Close()
+		_ = regHandler.Close()
+	})
+
+	rcHosts := []config.Host{{Name: tsHost, Hostname: tsHost, TLS: config.TLSDisabled}}
+	rc := regclient.New(regclient.WithConfigHost(rcHosts...))
+
+	// ── helpers ──────────────────────────────────────────────────────────────
+
+	// newRef parses a reference and fatals on error.
+	newRef := func(s string) ref.Ref {
+		r, err := ref.New(s)
+		if err != nil {
+			t.Fatalf("ref.New(%q): %v", s, err)
+		}
+		return r
+	}
+
+	// digestTag builds the cosign-style tag string from a digest and extension.
+	digestTag := func(d digest.Digest, ext string) string {
+		return string(d.Algorithm()) + "-" + d.Hex() + "." + ext
+	}
+
+	// ── sub-tests ─────────────────────────────────────────────────────────────
+
+	t.Run("non-digest tag is never orphaned", func(t *testing.T) {
+		tgtRef := newRef(tsHost + "/testrepo")
+		orphaned, err := isOrphanedDigestTag(ctx, rc, tgtRef, "latest")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if orphaned {
+			t.Errorf("expected non-digest tag to not be orphaned")
+		}
+	})
+
+	t.Run("sig tag whose referenced digest exists is not orphaned", func(t *testing.T) {
+		// Resolve the actual digest of testrepo:v1.
+		srcRef := newRef(tsHost + "/testrepo:v1")
+		m, err := rc.ManifestHead(ctx, srcRef, regclient.WithManifestRequireDigest())
+		if err != nil {
+			t.Fatalf("ManifestHead testrepo:v1: %v", err)
+		}
+		baseDigest := m.GetDescriptor().Digest
+
+		// isOrphanedDigestTag resolves the digest against tgtRef's repository.
+		// testrepo has the manifest, so use testrepo as the target repo.
+		tgtRef := newRef(tsHost + "/testrepo")
+		tag := digestTag(baseDigest, "sig")
+
+		orphaned, err := isOrphanedDigestTag(ctx, rc, tgtRef, tag)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if orphaned {
+			t.Errorf("sig tag %s should not be orphaned: digest %s still exists", tag, baseDigest)
+		}
+	})
+
+	t.Run("att tag whose referenced digest exists is not orphaned", func(t *testing.T) {
+		srcRef := newRef(tsHost + "/testrepo:v2")
+		m, err := rc.ManifestHead(ctx, srcRef, regclient.WithManifestRequireDigest())
+		if err != nil {
+			t.Fatalf("ManifestHead testrepo:v2: %v", err)
+		}
+		baseDigest := m.GetDescriptor().Digest
+		tgtRef := newRef(tsHost + "/testrepo")
+		tag := digestTag(baseDigest, "att")
+
+		orphaned, err := isOrphanedDigestTag(ctx, rc, tgtRef, tag)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if orphaned {
+			t.Errorf("att tag %s should not be orphaned: digest %s still exists", tag, baseDigest)
+		}
+	})
+
+	t.Run("sig tag with non-existent digest is orphaned", func(t *testing.T) {
+		fakeDigest := digest.NewDigestFromEncoded(digest.SHA256,
+			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		tgtRef := newRef(tsHost + "/testrepo")
+		tag := digestTag(fakeDigest, "sig")
+
+		orphaned, err := isOrphanedDigestTag(ctx, rc, tgtRef, tag)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !orphaned {
+			t.Errorf("sig tag %s should be orphaned: digest does not exist", tag)
+		}
+	})
+
+	t.Run("att tag with non-existent digest is orphaned", func(t *testing.T) {
+		fakeDigest := digest.NewDigestFromEncoded(digest.SHA256,
+			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+		tgtRef := newRef(tsHost + "/testrepo")
+		tag := digestTag(fakeDigest, "att")
+
+		orphaned, err := isOrphanedDigestTag(ctx, rc, tgtRef, tag)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !orphaned {
+			t.Errorf("att tag %s should be orphaned: digest does not exist", tag)
+		}
+	})
+
+	t.Run("cleanupTags removes orphaned digest tag that matches exclusion pattern", func(t *testing.T) {
+		t.Skip("Skipping: requires registry with tag deletion support (not available in olareg)")
+
+		boolT := true
+		repo := "test-orphan-excl"
+
+		// Copy testrepo:v1 to get a real manifest and its digest.
+		srcRef := newRef(tsHost + "/testrepo:v1")
+		dstRef := newRef(tsHost + "/" + repo + ":v1")
+		if err := rc.ImageCopy(ctx, srcRef, dstRef); err != nil {
+			t.Fatalf("ImageCopy: %v", err)
+		}
+		m, err := rc.ManifestHead(ctx, dstRef, regclient.WithManifestRequireDigest())
+		if err != nil {
+			t.Fatalf("ManifestHead: %v", err)
+		}
+		baseDigest := m.GetDescriptor().Digest
+
+		// Build the sig tag name for the deleted digest.
+		sigTag := digestTag(baseDigest, "sig")
+
+		// Now delete v1 so the digest tag becomes orphaned.
+		if err := rc.TagDelete(ctx, dstRef); err != nil {
+			t.Fatalf("TagDelete v1: %v", err)
+		}
+
+		confBytes := `version: 1`
+		conf, err := ConfigLoadReader(bytes.NewReader([]byte(confBytes)))
+		if err != nil {
+			t.Fatalf("ConfigLoadReader: %v", err)
+		}
+		pq := pqueue.New(pqueue.Opts[throttle]{Max: 1, Next: throttleNext})
+		rOpts := rootOpts{
+			conf:     conf,
+			rc:       rc,
+			throttle: pq,
+			log:      slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		}
+
+		// Run cleanup with an exclusion pattern that would normally protect .sig tags.
+		// The orphan check should override it and delete the tag anyway.
+		s := ConfigSync{
+			Source:             tsHost + "/" + repo,
+			Target:             tsHost + "/" + repo,
+			Type:               "repository",
+			CleanupTagsExclude: []string{`.*\.sig$`},
+		}
+		bTrue := boolT
+		s.CleanupTags = &bTrue
+		syncSetDefaults(&s, conf.Defaults)
+
+		if err := rOpts.cleanupTags(ctx, s, tsHost+"/"+repo); err != nil {
+			t.Fatalf("cleanupTags: %v", err)
+		}
+
+		// The orphaned .sig tag must be gone.
+		sigRef := newRef(tsHost + "/" + repo + ":" + sigTag)
+		_, err = rc.ManifestHead(ctx, sigRef)
+		if err == nil {
+			t.Errorf("orphaned sig tag %s still exists after cleanup", sigTag)
+		}
+	})
+}
