@@ -23,6 +23,17 @@ func TestNewVersion(t *testing.T) {
 		{name: "major.minor", input: "1.2", major: 1, minor: 2, patch: 0},
 		{name: "zero version", input: "0.0.0", major: 0, minor: 0, patch: 0},
 		{name: "windows version", input: "10.0.17763.2114", major: 10, minor: 0, patch: 17763},
+		{name: "prefixed tag alpine-v18.10.0", input: "alpine-v18.10.0", major: 18, minor: 10, patch: 0},
+		{name: "prefixed tag with prerelease", input: "alpine-v18.10.0-rc1", major: 18, minor: 10, patch: 0, prerelease: "rc1"},
+		// Tags that embed both an OS version and a software version (e.g. gitlab-runner-helper):
+		// the explicit v-prefixed part is the software version and must win over the bare OS version.
+		{name: "os+runner tag alpine3.18-x86_64-v17.8.0", input: "alpine3.18-x86_64-v17.8.0", major: 17, minor: 8, patch: 0},
+		{name: "os+runner tag future alpine3.18-x86_64-v18.10.0", input: "alpine3.18-x86_64-v18.10.0", major: 18, minor: 10, patch: 0},
+		{name: "os+runner tag 3.18-arm-v17.8.5", input: "3.18-arm-v17.8.5", major: 17, minor: 8, patch: 5},
+		{name: "short alpha-numeric tag a1", input: "a1", expectError: true},
+		{name: "short alpha-numeric tag b3", input: "b3", expectError: true},
+		// Single-part v-prefixed tags must still parse (e.g. regsync v1/v2 tags).
+		{name: "short v-prefixed tag v2", input: "v2", major: 2, minor: 0, patch: 0},
 		{name: "invalid format", input: "abc", expectError: true},
 		{name: "empty string", input: "", expectError: true},
 	}
@@ -81,6 +92,10 @@ func TestVersionCompare(t *testing.T) {
 		{name: "windows vs semver", v1: "10.0.17763", v2: "10.0.17763.0", expected: 0},
 		{name: "different length shorter less", v1: "1.2.3", v2: "1.2.3.1", expected: -1},
 		{name: "different length longer greater", v1: "1.2.3.1", v2: "1.2.3", expected: 1},
+		// Prefixed tags must compare by their embedded version, not by the prefix string.
+		{name: "prefixed tags equal", v1: "alpine-v1.2.3", v2: "alpine-v1.2.3", expected: 0},
+		{name: "prefixed tags less", v1: "alpine-v1.2.3", v2: "alpine-v1.2.4", expected: -1},
+		{name: "prefixed tags greater", v1: "alpine-v1.2.4", v2: "alpine-v1.2.3", expected: 1},
 	}
 
 	for _, tt := range tests {
@@ -188,6 +203,23 @@ func TestConstraintCheck(t *testing.T) {
 		// Prerelease versions
 		{name: "prerelease pass", constraint: ">=1.0.0-rc1", version: "1.0.0-rc2", expected: true},
 		{name: "prerelease release higher", constraint: ">=1.0.0-rc1", version: "1.0.0", expected: true},
+
+		// Prefixed tag versions (e.g. Docker image flavour tags)
+		{name: "alpine prefixed tag matches", constraint: ">=18.10.0", version: "alpine-v18.10.0", expected: true},
+		{name: "alpine prefixed tag passes higher", constraint: ">=18.10.0", version: "alpine-v18.11.0", expected: true},
+		{name: "alpine prefixed tag fails lower", constraint: ">=18.10.0", version: "alpine-v18.9.0", expected: false},
+		// Prerelease in a prefixed tag is still less than its release counterpart.
+		{name: "alpine prefixed prerelease fails release constraint", constraint: ">=18.10.0", version: "alpine-v18.10.0-rc1", expected: false},
+		// Tags with both an OS version and a software version (e.g. gitlab-runner-helper style):
+		// the software version (explicit-v) must be used for constraint checking, not the OS version.
+		{name: "os+runner tag runner v17.8 fails >=18.9.0", constraint: ">=18.9.0", version: "alpine3.18-x86_64-v17.8.0", expected: false},
+		{name: "os+runner tag runner v18.10 passes >=18.9.0", constraint: ">=18.9.0", version: "alpine3.18-x86_64-v18.10.0", expected: true},
+		{name: "os+runner tag runner v18.9 passes >=18.9.0 (equal)", constraint: ">=18.9.0", version: "alpine3.21-x86_64-v18.9.0", expected: true},
+		{name: "os+runner arm tag runner v17.8 fails >=18.9.0", constraint: ">=18.9.0", version: "3.18-arm-v17.8.5", expected: false},
+		// Short v-prefixed tags (regsync >=v2 scenario): v1 excluded, v2/v3 included.
+		{name: "short v-tag v2 matches >=v2", constraint: ">=v2", version: "v2", expected: true},
+		{name: "short v-tag v3 matches >=v2", constraint: ">=v2", version: "v3", expected: true},
+		{name: "short v-tag v1 fails >=v2", constraint: ">=v2", version: "v1", expected: false},
 	}
 
 	for _, tt := range tests {

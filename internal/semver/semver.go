@@ -3,9 +3,17 @@ package semver
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// versionAfterSepRe finds a version that is preceded by a dash or underscore
+// separator, with an optional v/V prefix. This lets tags like
+// "alpine3.18-x86_64-v17.8.0" resolve to the software version (v17.8.0) rather
+// than the OS/flavour version (3.18), because bare numeric fragments attached
+// directly to a word (e.g. "alpine3.18") are not preceded by a separator.
+var versionAfterSepRe = regexp.MustCompile(`[-_][vV]?\d+\.\d`)
 
 // Version represents a semantic version
 type Version struct {
@@ -18,6 +26,12 @@ type Version struct {
 // NewVersion parses a string into a Version
 func NewVersion(v string) (Version, error) {
 	original := v
+	// Strip any non-version prefix appearing before a dash/underscore-separated
+	// version, e.g. "alpine-" in "alpine-v18.10.0" or the OS prefix in
+	// "alpine3.18-x86_64-v17.8.0". The separator character itself is consumed.
+	if loc := versionAfterSepRe.FindStringIndex(v); loc != nil {
+		v = v[loc[0]+1:] // +1 skips the leading '-' or '_'
+	}
 	// Strip leading 'v' if present
 	v = strings.TrimPrefix(v, "v")
 
