@@ -121,6 +121,7 @@ func WithThrottle(pq *pqueue.Queue[struct{}]) Opt {
 	}
 }
 
+// setupMod configures a namespace, attaches various functions, and attaches tables of metamethods
 func (s *Sandbox) setupMod(name string, funcs map[string]lua.LGFunction, tables map[string]map[string]lua.LGFunction) {
 	mt := s.ls.NewTypeMetatable(name)
 	s.ls.SetGlobal(name, mt)
@@ -164,7 +165,7 @@ func (s *Sandbox) sandboxLog(ls *lua.LState) int {
 func wrapUserData(ls *lua.LState, udVal any, wrapVal any, udType string) (lua.LValue, error) {
 	ud := ls.NewUserData()
 	ud.Value = udVal
-	udTypeMT, ok := (ls.GetTypeMetatable(udType)).(*lua.LTable)
+	udTypeMT, ok := ls.GetTypeMetatable(udType).(*lua.LTable)
 	if !ok {
 		return nil, ErrInvalidInput
 	}

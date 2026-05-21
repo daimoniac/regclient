@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/regclient/regclient/internal/regnet"
 	"github.com/regclient/regclient/types/errs"
 )
 
@@ -391,7 +392,7 @@ func parseAuthHeader(ah string) ([]challenge, error) {
 				cl = append(cl, *c)
 				stateSyntax = "end_auth_type"
 			} else if b == '=' && len(curElement) > 0 {
-				curKey = strings.ToLower((string(curElement)))
+				curKey = strings.ToLower(string(curElement))
 				stateSyntax = "param_value"
 			} else {
 				return nil, fmt.Errorf("expected auth type or param: %w", errs.ErrParsingFailed)
@@ -399,7 +400,7 @@ func parseAuthHeader(ah string) ([]challenge, error) {
 		case "end_auth_type":
 			// end_auth_type: (after reading auth_type) read param_key and equals (param_value) or just a comma (start)
 			if b == '=' && len(curElement) > 0 {
-				curKey = strings.ToLower((string(curElement)))
+				curKey = strings.ToLower(string(curElement))
 				stateSyntax = "param_value"
 			} else if b == ',' && len(curElement) == 0 {
 				// ignore white space between end of auth_type and comma
@@ -638,6 +639,10 @@ func (b *bearerHandler) UpdateRequest(req *http.Request) error {
 			return err
 		}
 		b.tokenURL = u
+	}
+	// verify tokenURL is allowed for request URL
+	if err := regnet.AllowRedirect(*req.URL, *b.tokenURL); err != nil {
+		return err
 	}
 	// if unexpired token already exists, return it
 	if b.token.Token != "" && !b.isExpired() {

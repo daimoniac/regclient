@@ -44,6 +44,7 @@ type ConfigDefaults struct {
 	ReferrerFilters    []ConfigReferrerFilter `yaml:"referrerFilters" json:"referrerFilters"`
 	ReferrerSrc        string                 `yaml:"referrerSource" json:"referrerSource"`
 	ReferrerTgt        string                 `yaml:"referrerTarget" json:"referrerTarget"`
+	ReferrerSlow       *bool                  `yaml:"referrerSlow" json:"referrerSlow"`
 	FastCheck          *bool                  `yaml:"fastCheck" json:"fastCheck"`
 	ForceRecursive     *bool                  `yaml:"forceRecursive" json:"forceRecursive"`
 	IncludeExternal    *bool                  `yaml:"includeExternal" json:"includeExternal"`
@@ -78,6 +79,7 @@ type ConfigSync struct {
 	ReferrerFilters    []ConfigReferrerFilter `yaml:"referrerFilters" json:"referrerFilters"`
 	ReferrerSrc        string                 `yaml:"referrerSource" json:"referrerSource"`
 	ReferrerTgt        string                 `yaml:"referrerTarget" json:"referrerTarget"`
+	ReferrerSlow       *bool                  `yaml:"referrerSlow" json:"referrerSlow"`
 	Platform           string                 `yaml:"platform" json:"platform"`
 	Platforms          []string               `yaml:"platforms" json:"platforms"`
 	FastCheck          *bool                  `yaml:"fastCheck" json:"fastCheck"`
@@ -295,6 +297,10 @@ func syncSetDefaults(s *ConfigSync, d ConfigDefaults) {
 	}
 	if s.ReferrerTgt == "" && d.ReferrerTgt != "" {
 		s.ReferrerTgt = d.ReferrerTgt
+	}
+	if s.ReferrerSlow == nil {
+		b := (d.ReferrerSlow != nil && *d.ReferrerSlow)
+		s.ReferrerSlow = &b
 	}
 	if s.FastCheck == nil {
 		b := (d.FastCheck != nil && *d.FastCheck)
