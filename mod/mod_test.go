@@ -1,3 +1,17 @@
+// Copyright the regclient contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package mod
 
 import (
@@ -210,6 +224,21 @@ func TestMod(t *testing.T) {
 			ref: tTgtHost + "/testrepo:v1",
 		},
 		{
+			name: "Set Author to Current Blank Value",
+			opts: []Opts{
+				WithConfigAuthor(""),
+			},
+			ref:      tTgtHost + "/testrepo:v1",
+			wantSame: true,
+		},
+		{
+			name: "Set Author",
+			opts: []Opts{
+				WithConfigAuthor("test"),
+			},
+			ref: tTgtHost + "/testrepo:v1",
+		},
+		{
 			name: "Add Annotation",
 			opts: []Opts{
 				WithAnnotation("test", "hello"),
@@ -244,7 +273,7 @@ func TestMod(t *testing.T) {
 				WithAnnotation("[linux/invalid.arch!]test", "hello"),
 			},
 			ref:     tTgtHost + "/testrepo:v1",
-			wantErr: fmt.Errorf("failed to parse annotation platform linux/invalid.arch!: invalid platform component invalid.arch! in linux/invalid.arch!"),
+			wantErr: errPlatformParse,
 		},
 		{
 			name: "Delete Annotation",
@@ -303,7 +332,7 @@ func TestMod(t *testing.T) {
 				WithLabel("[linux/invalid.arch!]test", "hello"),
 			},
 			ref:     tTgtHost + "/testrepo:v1",
-			wantErr: fmt.Errorf("failed to parse label platform linux/invalid.arch!: invalid platform component invalid.arch! in linux/invalid.arch!"),
+			wantErr: errPlatformParse,
 		},
 		{
 			name: "Delete Label",
@@ -362,7 +391,7 @@ func TestMod(t *testing.T) {
 				WithEnv("[linux/invalid.arch!]test", "hello"),
 			},
 			ref:     tTgtHost + "/testrepo:v1",
-			wantErr: fmt.Errorf("failed to parse env platform linux/invalid.arch!: invalid platform component invalid.arch! in linux/invalid.arch!"),
+			wantErr: errPlatformParse,
 		},
 		{
 			name: "Change Env",
@@ -552,6 +581,66 @@ func TestMod(t *testing.T) {
 			},
 			ref:      tTgtHost + "/testrepo:a1",
 			wantSame: true,
+		},
+		{
+			name: "Set User to unchanged empty string",
+			opts: []Opts{
+				WithConfigUser(""),
+			},
+			ref:      tTgtHost + "/testrepo:v1",
+			wantSame: true,
+		},
+		{
+			name: "Set User",
+			opts: []Opts{
+				WithConfigUser("1000"),
+			},
+			ref: tTgtHost + "/testrepo:v1",
+		},
+		{
+			name: "Set Platform Specific User",
+			opts: []Opts{
+				WithConfigUser("[linux/amd64]1000"),
+			},
+			ref: tTgtHost + "/testrepo:v1",
+		},
+		{
+			name: "Set Platform Specific User on Missing Platform",
+			opts: []Opts{
+				WithConfigUser("[windows/amd64]1000"),
+			},
+			ref:      tTgtHost + "/testrepo:v1",
+			wantSame: true,
+		},
+		{
+			name: "Set User",
+			opts: []Opts{
+				WithConfigUser("1000"),
+			},
+			ref: tTgtHost + "/testrepo:v1",
+		},
+		{
+			name: "Set Workdir to unchanged empty string",
+			opts: []Opts{
+				WithConfigWorkdir(""),
+			},
+			ref:      tTgtHost + "/testrepo:v1",
+			wantSame: true,
+		},
+		{
+			name: "Set Workdir",
+			opts: []Opts{
+				WithConfigWorkdir("/workdir"),
+			},
+			ref: tTgtHost + "/testrepo:v1",
+		},
+		{
+			name: "Set Platform Specific Workdir",
+			opts: []Opts{
+				WithConfigWorkdir("[linux/amd64]/workdir-amd"),
+				WithConfigWorkdir("[linux/arm64]/workdir-arm"),
+			},
+			ref: tTgtHost + "/testrepo:v1",
 		},
 		{
 			name: "External layer remove unchanged",

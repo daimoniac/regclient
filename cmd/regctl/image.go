@@ -1,3 +1,17 @@
+// Copyright the regclient contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -450,6 +464,13 @@ regctl image mod registry.example.org/regctl:v0.5.1-alpine \
 		},
 	}, "annotation-promote", "", `promote common annotations from child images to index`)
 	flagAnnotationPromote.NoOptDefVal = "true"
+	cmd.Flags().Var(&modFlagFunc{
+		t: "string",
+		f: func(val string) error {
+			opts.modOpts = append(opts.modOpts, mod.WithConfigAuthor(val))
+			return nil
+		},
+	}, "author", `set image author`)
 	cmd.Flags().Var(&modFlagFunc{
 		t: "string",
 		f: func(val string) error {
@@ -961,6 +982,13 @@ regctl image mod registry.example.org/regctl:v0.5.1-alpine \
 	}, "to-oci-referrers", "", `convert to OCI referrers`)
 	flagOCIReferrers.NoOptDefVal = "true"
 	cmd.Flags().Var(&modFlagFunc{
+		t: "string",
+		f: func(val string) error {
+			opts.modOpts = append(opts.modOpts, mod.WithConfigUser(val))
+			return nil
+		},
+	}, "user", `set default user (username, uid, with optional colon and group/gid value)`)
+	cmd.Flags().Var(&modFlagFunc{
 		t: "stringArray",
 		f: func(val string) error {
 			opts.modOpts = append(opts.modOpts, mod.WithVolumeAdd(val))
@@ -974,6 +1002,13 @@ regctl image mod registry.example.org/regctl:v0.5.1-alpine \
 			return nil
 		},
 	}, "volume-rm", `delete a volume definition`)
+	cmd.Flags().Var(&modFlagFunc{
+		t: "string",
+		f: func(val string) error {
+			opts.modOpts = append(opts.modOpts, mod.WithConfigWorkdir(val))
+			return nil
+		},
+	}, "workdir", `set default workdir path`)
 
 	return cmd
 }
@@ -1288,7 +1323,10 @@ func (ip *imageProgress) display(final bool) {
 				if len(pre) > 15 {
 					pre = pre[:14] + " "
 				}
-				pct := float64(e.cur) / float64(e.total)
+				var pct float64
+				if e.total > 0 {
+					pct = float64(e.cur) / float64(e.total)
+				}
 				post := fmt.Sprintf(" %4.2f%% %s/%s", pct*100, units.HumanSize(float64(e.cur)), units.HumanSize(float64(e.total)))
 				ip.asciiOut.Add(ip.bar.Generate(pct, pre, post))
 			}

@@ -1,3 +1,17 @@
+// Copyright the regclient contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package mod changes an image according to the requested modifications.
 package mod
 
@@ -5,10 +19,12 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -18,6 +34,7 @@ import (
 	"github.com/regclient/regclient/pkg/archive"
 	"github.com/regclient/regclient/types/descriptor"
 	"github.com/regclient/regclient/types/mediatype"
+	"github.com/regclient/regclient/types/platform"
 	"github.com/regclient/regclient/types/ref"
 	"github.com/regclient/regclient/types/warning"
 )
@@ -387,4 +404,32 @@ func WithDigestAlgo(algo digest.Algorithm) Opts {
 		}
 		return nil
 	}
+}
+
+var errPlatformParse = errors.New("failed to parse platform")
+
+// extractPlatformList returns a list of platforms prefixed to a string.
+// The prefix syntax is a list of platforms in square brackets before the rest of the string.
+// A star, empty list, or no prefix all return an empty platform list, indicating there is no platform filter.
+// The returned string is the value after the square brackets.
+// E.g. "[linux/amd64,linux/arm64]value" will return "value" and a slice of platforms for amd64 and arm64.
+func extractPlatformList(s string) (string, []platform.Platform, error) {
+	s = strings.TrimSpace(s)
+	platforms := []platform.Platform{}
+	if len(s) > 1 && s[0] == '[' && strings.Index(s, "]") > 0 {
+		end := strings.Index(s, "]")
+		for entry := range strings.SplitSeq(s[1:end], ",") {
+			entry = strings.TrimSpace(entry)
+			if entry == "*" {
+				continue
+			}
+			p, err := platform.Parse(entry)
+			if err != nil {
+				return s, platforms, fmt.Errorf("%w %s: %w", errPlatformParse, entry, err)
+			}
+			platforms = append(platforms, p)
+		}
+		s = s[end+1:]
+	}
+	return s, platforms, nil
 }

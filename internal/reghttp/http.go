@@ -1,3 +1,17 @@
+// Copyright the regclient contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package reghttp is used for HTTP requests to a registry
 package reghttp
 
@@ -44,8 +58,9 @@ var (
 )
 
 const (
-	DefaultRetryLimit = 5 // number of times a request will be retried
-	backoffResetCount = 5 // number of successful requests needed to reduce the backoff
+	DefaultRetryLimit = 5               // number of times a request will be retried
+	backoffResetCount = 5               // number of successful requests needed to reduce the backoff
+	ReadBodyLimit     = 8 * 1024 * 1024 // limit for reading the body for errors
 )
 
 // Client is an HTTP client wrapper.
@@ -402,7 +417,8 @@ func (resp *Resp) next() error {
 				}
 				// add auth headers
 				err = hAuth.UpdateRequest(httpReq)
-				if err != nil {
+				// abort on auth errors, but only after the first request has been attempted
+				if err != nil && resp.resp != nil {
 					if errors.Is(err, errs.ErrHTTPUnauthorized) {
 						dropHost = true
 					} else {
@@ -481,7 +497,7 @@ func (resp *Resp) next() error {
 					dropHost = true
 				}
 				errHTTP := HTTPError(resp.resp.StatusCode)
-				errBody, _ := io.ReadAll(resp.resp.Body)
+				errBody, _ := io.ReadAll(&io.LimitedReader{R: resp.resp.Body, N: ReadBodyLimit})
 				_ = resp.resp.Body.Close()
 				return fmt.Errorf("request failed: %w: %s", errHTTP, errBody)
 			}
@@ -558,7 +574,7 @@ func (resp *Resp) HTTPResponse() *http.Response {
 
 // Read provides a retryable read from the body of the response.
 func (resp *Resp) Read(b []byte) (int, error) {
-	if resp.done {
+	if resp.done || resp.reader == nil {
 		return 0, io.EOF
 	}
 	if resp.resp == nil {
@@ -752,12 +768,15 @@ func (c *Client) getHost(host string) *clientHost {
 	hc := *c.httpClient
 	h.httpClient = &hc
 	if h.httpClient.Transport == nil {
-		h.httpClient.Transport = http.DefaultTransport.(*http.Transport).Clone()
+		if t, ok := http.DefaultTransport.(*http.Transport); ok {
+			h.httpClient.Transport = t.Clone()
+		} else {
+			h.httpClient.Transport = http.DefaultTransport
+		}
 	}
 	// configure transport for insecure requests and root certs
 	if h.config.TLS == config.TLSInsecure || len(c.rootCAPool) > 0 || len(c.rootCADirs) > 0 || h.config.RegCert != "" || (h.config.ClientCert != "" && h.config.ClientKey != "") {
-		t, ok := h.httpClient.Transport.(*http.Transport)
-		if ok {
+		if t, ok := h.httpClient.Transport.(*http.Transport); ok {
 			var tlsc *tls.Config
 			if t.TLSClientConfig != nil {
 				tlsc = t.TLSClientConfig.Clone()
@@ -857,8 +876,13 @@ func (ch *clientHost) AuthCreds() func(h string) auth.Cred {
 		return auth.DefaultCredsFn
 	}
 	return func(h string) auth.Cred {
-		hCred := ch.config.GetCred()
-		return auth.Cred{User: hCred.User, Password: hCred.Password, Token: hCred.Token}
+		// only return credentials to challenges from the registry server, not to any redirects
+		if h == ch.config.Hostname {
+			hCred := ch.config.GetCred()
+			return auth.Cred{User: hCred.User, Password: hCred.Password, Token: hCred.Token}
+		} else {
+			return auth.Cred{}
+		}
 	}
 }
 

@@ -1,9 +1,24 @@
+// Copyright the regclient contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package ocidir
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -13,6 +28,7 @@ import (
 	"github.com/opencontainers/go-digest"
 
 	"github.com/regclient/regclient/internal/copyfs"
+	"github.com/regclient/regclient/types/errs"
 	"github.com/regclient/regclient/types/manifest"
 	"github.com/regclient/regclient/types/mediatype"
 	v1 "github.com/regclient/regclient/types/oci/v1"
@@ -234,5 +250,19 @@ func TestManifest(t *testing.T) {
 	_, err = o.ManifestHead(ctx, r11)
 	if err != nil {
 		t.Errorf("could not query manifest after pushing dup tag")
+	}
+	err = o.Close(ctx, r11)
+	if err != nil {
+		t.Errorf("failed closing: %v", err)
+	}
+	// test manifest limits
+	o = New(WithManifestMax(16, 32))
+	_, err = o.ManifestGet(ctx, r11)
+	if !errors.Is(err, errs.ErrSizeLimitExceeded) {
+		t.Errorf("manifest pull limit expected err: %v, received: %v", errs.ErrSizeLimitExceeded, err)
+	}
+	err = o.Close(ctx, r11)
+	if err != nil {
+		t.Errorf("failed closing: %v", err)
 	}
 }

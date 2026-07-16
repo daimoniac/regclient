@@ -1,3 +1,17 @@
+# Copyright the regclient contributors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 COMMANDS?=regctl regsync regbot
 BINARIES?=$(addprefix bin/,$(COMMANDS))
 IMAGES?=$(addprefix docker-,$(COMMANDS))
@@ -35,16 +49,16 @@ ifeq "$(strip $(VER_BUMP))" ''
 		-u "$(shell id -u):$(shell id -g)" \
 		$(VER_BUMP_CONTAINER)
 endif
-MARKDOWN_LINT_VER?=v0.22.1
+MARKDOWN_LINT_VER?=v0.23.0
 GOFUMPT_VER?=v0.10.0
 GOMAJOR_VER?=v0.15.0
-GOSEC_VER?=v2.26.1
-GO_VULNCHECK_VER?=v1.3.0
-OSV_SCANNER_VER?=v2.3.8
+GOSEC_VER?=v2.27.1
+GO_VULNCHECK_VER?=v1.6.0
+OSV_SCANNER_VER?=v2.4.0
 SYFT?=$(shell command -v syft 2>/dev/null)
 SYFT_CMD_VER:=$(shell [ -x "$(SYFT)" ] && echo "v$$($(SYFT) version | awk '/^Version: / {print $$2}')" || echo "0")
-SYFT_VERSION?=v1.44.0
-SYFT_CONTAINER?=anchore/syft:v1.44.0@sha256:86fde6445b483d902fe011dd9f68c4987dd94e07da1e9edc004e3c2422650de6
+SYFT_VERSION?=v1.46.0
+SYFT_CONTAINER?=anchore/syft:v1.46.0@sha256:473a60e3a58e29aca3aedb3e99e787bb4ef273917e44d10fcbea4330a07320bb
 ifneq "$(SYFT_CMD_VER)" "$(SYFT_VERSION)"
 	SYFT=docker run --rm \
 		-v "$(shell pwd)/:$(shell pwd)/" -w "$(shell pwd)" \
@@ -53,7 +67,7 @@ ifneq "$(SYFT_CMD_VER)" "$(SYFT_VERSION)"
 endif
 STATICCHECK_VER?=v0.7.0
 CI_DISTRIBUTION_VER?=3.1.1
-CI_ZOT_VER?=v2.1.17
+CI_ZOT_VER?=v2.1.18
 
 .PHONY: .FORCE
 .FORCE:
@@ -85,7 +99,11 @@ test: ## go test
 	go test -cover -race ./...
 
 .PHONY: lint
-lint: lint-go lint-goimports lint-md lint-gosec ## Run all linting
+lint: lint-go lint-goimports lint-md lint-gosec lint-copyright ## Run all linting
+
+.PHONY: lint-copyright
+lint-copyright: ## Verify copyright headers in code files
+	./build/lint-copyright.sh
 
 .PHONY: lint-go
 lint-go: $(GOPATH)/bin/gofumpt $(GOPATH)/bin/staticcheck .FORCE ## Run linting for Go
