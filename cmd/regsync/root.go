@@ -93,9 +93,11 @@ type rootOpts struct {
 	format     string // for Go template formatting of various commands
 	abortOnErr bool
 	missing    bool
+	dryRun     bool
 	conf       *Config
 	rc         *regclient.RegClient
 	throttle   *pqueue.Queue[throttle]
+	hubClient  hubRepoAPI // optional override for tests
 }
 
 func NewRootCmd() (*cobra.Command, *rootOpts) {
@@ -139,6 +141,17 @@ sync step is finished.`,
 		RunE: opts.runOnce,
 	}
 	onceCmd.Flags().BoolVar(&opts.missing, "missing", false, "Only copy tags that are missing on target")
+	cleanupReposCmd := &cobra.Command{
+		Use:   "cleanup-repos",
+		Short: "delete target repositories without a dedicated sync entry",
+		Long: `Deletes repositories in the target registry namespace that are not referenced
+by any sync entry. Uses Docker Hub management APIs for docker.io targets.
+Does not run image syncs. Respects defaults.cleanupReposExclude.
+Use --dry-run to only log what would be deleted.`,
+		Args: cobra.RangeArgs(0, 0),
+		RunE: opts.runCleanupReposCmd,
+	}
+	cleanupReposCmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Only log repositories that would be deleted")
 	configCmd := &cobra.Command{
 		Use:   "config",
 		Short: "Show the config",
@@ -146,7 +159,7 @@ sync step is finished.`,
 		Args:  cobra.RangeArgs(0, 0),
 		RunE:  opts.runConfig,
 	}
-	for _, curCmd := range []*cobra.Command{serverCmd, checkCmd, onceCmd, configCmd} {
+	for _, curCmd := range []*cobra.Command{serverCmd, checkCmd, onceCmd, cleanupReposCmd, configCmd} {
 		curCmd.Flags().StringVarP(&opts.confFile, "config", "c", "", "Config file")
 		_ = curCmd.MarkFlagFilename("config")
 		_ = curCmd.MarkFlagRequired("config")
@@ -178,6 +191,7 @@ sync step is finished.`,
 		serverCmd,
 		checkCmd,
 		onceCmd,
+		cleanupReposCmd,
 		configCmd,
 		versionCmd,
 		cobradoc.NewCmd(cmd.Name(), "cli-doc"),
@@ -213,6 +227,21 @@ func (opts *rootOpts) rootPreRun(cmd *cobra.Command, args []string) error {
 func (opts *rootOpts) runVersion(cmd *cobra.Command, args []string) error {
 	info := version.GetInfo()
 	return template.Writer(os.Stdout, opts.format, info)
+}
+
+// runCleanupReposCmd runs only repository cleanup, without syncing images.
+func (opts *rootOpts) runCleanupReposCmd(cmd *cobra.Command, args []string) error {
+	err := opts.loadConf()
+	if err != nil {
+		return err
+	}
+	// Allow explicit invocation even if defaults.cleanupRepos is false/omitted.
+	if opts.conf.Defaults.CleanupRepos == nil || !*opts.conf.Defaults.CleanupRepos {
+		b := true
+		opts.conf.Defaults.CleanupRepos = &b
+		opts.log.Info("cleanupRepos not enabled in config defaults; enabling for this command invocation")
+	}
+	return opts.runCleanupRepos(cmd.Context(), opts.dryRun)
 }
 
 // runConfig processes the file in one pass, ignoring cron
@@ -264,6 +293,16 @@ func (opts *rootOpts) runOnce(cmd *cobra.Command, args []string) error {
 		}
 	}
 	wg.Wait()
+	// Always run cleanupRepos after syncs (unless canceled), even if some syncs failed.
+	if ctx.Err() == nil {
+		if cleanupErr := opts.runCleanupRepos(ctx, false); cleanupErr != nil {
+			opts.log.Error("cleanupRepos encountered errors",
+				slog.String("error", cleanupErr.Error()))
+			mu.Lock()
+			errs = append(errs, cleanupErr)
+			mu.Unlock()
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -366,6 +405,37 @@ func (opts *rootOpts) runServer(cmd *cobra.Command, args []string) error {
 			return errors.Join(errs...)
 		}
 	}
+	// schedule daily cleanupRepos when enabled
+	if opts.conf.Defaults.CleanupRepos != nil && *opts.conf.Defaults.CleanupRepos {
+		sched := opts.conf.Defaults.CleanupReposSchedule
+		if sched == "" {
+			sched = defaultCleanupReposSchedule
+		}
+		opts.log.Info("Scheduling cleanupRepos",
+			slog.String("sched", sched))
+		_, err := c.AddFunc(sched, func() {
+			opts.log.Debug("Running scheduled cleanupRepos")
+			wg.Add(1)
+			defer wg.Done()
+			if err := opts.runCleanupRepos(ctx, false); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, ErrCanceled) {
+				if opts.abortOnErr {
+					cancel()
+				}
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		})
+		if err != nil {
+			opts.log.Error("Failed to schedule cleanupRepos cron",
+				slog.String("sched", sched),
+				slog.String("err", err.Error()))
+			errs = append(errs, err)
+			if opts.abortOnErr {
+				return errors.Join(errs...)
+			}
+		}
+	}
 	// start the server and wait until interrupted
 	c.Start()
 	done := ctx.Done()
@@ -396,6 +466,11 @@ func (opts *rootOpts) runCheck(cmd *cobra.Command, args []string) error {
 				break
 			}
 		}
+	}
+	if cleanupErr := opts.runCleanupRepos(ctx, true); cleanupErr != nil {
+		opts.log.Error("cleanupRepos check encountered errors",
+			slog.String("error", cleanupErr.Error()))
+		errs = append(errs, cleanupErr)
 	}
 	return errors.Join(errs...)
 }

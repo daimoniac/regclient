@@ -1227,11 +1227,12 @@ func TestConfigRead(t *testing.T) {
 						Min:   100,
 						Retry: 15 * time.Minute,
 					},
-					Parallel:   2,
-					Interval:   60 * time.Minute,
-					Backup:     "bkup-{{.Ref.Tag}}",
-					CacheCount: 500,
-					CacheTime:  5 * time.Minute,
+					Parallel:     2,
+					Interval:     60 * time.Minute,
+					Backup:       "bkup-{{.Ref.Tag}}",
+					CacheCount:   500,
+					CacheTime:    5 * time.Minute,
+					CleanupRepos:  &bFalse,
 				},
 				Sync: []ConfigSync{
 					{
@@ -1313,6 +1314,7 @@ func TestConfigRead(t *testing.T) {
 				},
 				Defaults: ConfigDefaults{
 					Schedule: "15 3 * * *",
+					CleanupRepos: &bFalse,
 					RateLimit: ConfigRateLimit{
 						Retry: rateLimitRetryMin,
 					},
@@ -1405,6 +1407,7 @@ func TestConfigCleanupParsing(t *testing.T) {
 						".*\\.att$",
 						"backup-.*",
 					},
+					CleanupRepos: &bFalse,
 					RateLimit: ConfigRateLimit{
 						Retry: rateLimitRetryMin,
 					},
@@ -1546,6 +1549,7 @@ func TestConfigCleanupParsing(t *testing.T) {
 					},
 				},
 				Defaults: ConfigDefaults{
+					CleanupRepos: &bFalse,
 					RateLimit: ConfigRateLimit{
 						Retry: rateLimitRetryMin,
 					},

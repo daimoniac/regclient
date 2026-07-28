@@ -48,24 +48,27 @@ type Config struct {
 
 // ConfigDefaults is uses for general options and defaults for ConfigSync entries
 type ConfigDefaults struct {
-	Backup             string                 `yaml:"backup" json:"backup"`
-	Interval           time.Duration          `yaml:"interval" json:"interval"`
-	Schedule           string                 `yaml:"schedule" json:"schedule"`
-	RateLimit          ConfigRateLimit        `yaml:"ratelimit" json:"ratelimit"`
-	Parallel           int                    `yaml:"parallel" json:"parallel"`
-	DigestTags         *bool                  `yaml:"digestTags" json:"digestTags"`
-	Referrers          *bool                  `yaml:"referrers" json:"referrers"`
-	ReferrerFilters    []ConfigReferrerFilter `yaml:"referrerFilters" json:"referrerFilters"`
-	ReferrerSrc        string                 `yaml:"referrerSource" json:"referrerSource"`
-	ReferrerTgt        string                 `yaml:"referrerTarget" json:"referrerTarget"`
-	ReferrerSlow       *bool                  `yaml:"referrerSlow" json:"referrerSlow"`
-	FastCheck          *bool                  `yaml:"fastCheck" json:"fastCheck"`
-	ForceRecursive     *bool                  `yaml:"forceRecursive" json:"forceRecursive"`
-	IncludeExternal    *bool                  `yaml:"includeExternal" json:"includeExternal"`
-	MediaTypes         []string               `yaml:"mediaTypes" json:"mediaTypes"`
-	Hooks              ConfigHooks            `yaml:"hooks" json:"hooks"`
-	CleanupTags        *bool                  `yaml:"cleanupTags" json:"cleanupTags"`
-	CleanupTagsExclude []string               `yaml:"cleanupTagsExclude" json:"cleanupTagsExclude"`
+	Backup               string                 `yaml:"backup" json:"backup"`
+	Interval             time.Duration          `yaml:"interval" json:"interval"`
+	Schedule             string                 `yaml:"schedule" json:"schedule"`
+	RateLimit            ConfigRateLimit        `yaml:"ratelimit" json:"ratelimit"`
+	Parallel             int                    `yaml:"parallel" json:"parallel"`
+	DigestTags           *bool                  `yaml:"digestTags" json:"digestTags"`
+	Referrers            *bool                  `yaml:"referrers" json:"referrers"`
+	ReferrerFilters      []ConfigReferrerFilter `yaml:"referrerFilters" json:"referrerFilters"`
+	ReferrerSrc          string                 `yaml:"referrerSource" json:"referrerSource"`
+	ReferrerTgt          string                 `yaml:"referrerTarget" json:"referrerTarget"`
+	ReferrerSlow         *bool                  `yaml:"referrerSlow" json:"referrerSlow"`
+	FastCheck            *bool                  `yaml:"fastCheck" json:"fastCheck"`
+	ForceRecursive       *bool                  `yaml:"forceRecursive" json:"forceRecursive"`
+	IncludeExternal      *bool                  `yaml:"includeExternal" json:"includeExternal"`
+	MediaTypes           []string               `yaml:"mediaTypes" json:"mediaTypes"`
+	Hooks                ConfigHooks            `yaml:"hooks" json:"hooks"`
+	CleanupTags          *bool                  `yaml:"cleanupTags" json:"cleanupTags"`
+	CleanupTagsExclude   []string               `yaml:"cleanupTagsExclude" json:"cleanupTagsExclude"`
+	CleanupRepos         *bool                  `yaml:"cleanupRepos" json:"cleanupRepos"`
+	CleanupReposExclude  []string               `yaml:"cleanupReposExclude" json:"cleanupReposExclude"`
+	CleanupReposSchedule string                 `yaml:"cleanupReposSchedule" json:"cleanupReposSchedule"`
 	// general options
 	BlobLimit      int64         `yaml:"blobLimit" json:"blobLimit"`
 	CacheCount     int           `yaml:"cacheCount" json:"cacheCount"`
@@ -73,6 +76,8 @@ type ConfigDefaults struct {
 	SkipDockerConf bool          `yaml:"skipDockerConfig" json:"skipDockerConfig"`
 	UserAgent      string        `yaml:"userAgent" json:"userAgent"`
 }
+
+const defaultCleanupReposSchedule = "0 4 * * *"
 
 // ConfigRateLimit is for rate limit settings
 type ConfigRateLimit struct {
@@ -165,6 +170,13 @@ func ConfigLoadReader(r io.Reader) (*Config, error) {
 	// apply top level defaults
 	if c.Defaults.RateLimit.Retry < rateLimitRetryMin {
 		c.Defaults.RateLimit.Retry = rateLimitRetryMin
+	}
+	if c.Defaults.CleanupRepos == nil {
+		b := false
+		c.Defaults.CleanupRepos = &b
+	}
+	if *c.Defaults.CleanupRepos && c.Defaults.CleanupReposSchedule == "" {
+		c.Defaults.CleanupReposSchedule = defaultCleanupReposSchedule
 	}
 	// apply defaults to each step
 	for i := range c.Sync {
