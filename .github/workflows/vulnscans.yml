@@ -31,10 +31,10 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: "Set up Go"
-      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: "${{ env.RELEASE_GO_VER }}"
         check-latest: true
@@ -51,8 +51,8 @@ jobs:
     # intentionally not pinned to always run the latest scanner
     - name: "Install OSV Scanner"
       run: |
-        go install github.com/google/osv-scanner/cmd/osv-scanner@latest
+        go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
 
     - name: "Run OSV Scanner"
       run: |
-        osv-scanner scan --config .osv-scanner.toml -r --experimental-licenses="Apache-2.0,BSD-3-Clause,MIT,CC-BY-SA-4.0,UNKNOWN" .
+        osv-scanner scan --config .osv-scanner.toml -r --licenses="Apache-2.0,BSD-3-Clause,MIT,CC-BY-SA-4.0,UNKNOWN" .
