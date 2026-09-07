@@ -32,7 +32,7 @@ VCS_VERSION?=$(shell vcs_describe="$$(git describe --all)"; \
     if [ "main" = "$${vcs_version}" ]; then vcs_version=edge; fi; \
   fi; \
   echo "$${vcs_version}" | sed -r 's#/+#-#g')
-VCS_TAG?=$(shell git describe --tags --abbrev=0 2>/dev/null || true)
+VCS_TAG?=$(shell git describe --tags --exact-match 2>/dev/null || true)
 VCS_SEC?=$(shell git log -1 --format=%ct)
 VCS_DATE?=$(shell date -d "@$(VCS_SEC)" +%Y-%m-%dT%H:%M:%SZ --utc)
 LD_FLAGS?=-s -w -extldflags -static -buildid= -X \"github.com/regclient/regclient/internal/version.vcsTag=$(VCS_TAG)\"
@@ -49,25 +49,25 @@ ifeq "$(strip $(VER_BUMP))" ''
 		-u "$(shell id -u):$(shell id -g)" \
 		$(VER_BUMP_CONTAINER)
 endif
-MARKDOWN_LINT_VER?=v0.23.1
-GOFUMPT_VER?=v0.10.0
+MARKDOWN_LINT_VER?=v0.23.2
+GOFUMPT_VER?=v0.11.0
 GOMAJOR_VER?=v0.15.0
-GOSEC_VER?=v2.28.0
-GO_VULNCHECK_VER?=v1.6.0
-OSV_SCANNER_VER?=v2.4.0
+GOSEC_VER?=v2.29.0
+GO_VULNCHECK_VER?=v1.7.0
+OSV_SCANNER_VER?=v2.5.1
 SYFT?=$(shell command -v syft 2>/dev/null)
 SYFT_CMD_VER:=$(shell [ -x "$(SYFT)" ] && echo "v$$($(SYFT) version | awk '/^Version: / {print $$2}')" || echo "0")
-SYFT_VERSION?=v1.49.0
-SYFT_CONTAINER?=anchore/syft:v1.49.0@sha256:13b53ebabe3d215268c90cf8fb9b875f0183908245f376fd4b3a2cb69d21d484
+SYFT_VERSION?=v1.51.1
+SYFT_CONTAINER?=anchore/syft:v1.51.1@sha256:95fe0835e5bebc6f8b1f8acef68d47d63d594ef4c0f25c097ff853b23cbac74c
 ifneq "$(SYFT_CMD_VER)" "$(SYFT_VERSION)"
 	SYFT=docker run --rm \
 		-v "$(shell pwd)/:$(shell pwd)/" -w "$(shell pwd)" \
 		-u "$(shell id -u):$(shell id -g)" \
 		$(SYFT_CONTAINER)
 endif
-STATICCHECK_VER?=v0.7.0
+STATICCHECK_VER?=v0.8.1
 CI_DISTRIBUTION_VER?=3.1.1
-CI_ZOT_VER?=v2.1.18
+CI_ZOT_VER?=v2.1.20
 
 .PHONY: .FORCE
 .FORCE:
@@ -241,13 +241,11 @@ util-golang-update: ## update go module versions
 
 .PHONY: util-release-preview
 util-release-preview: $(GOPATH)/bin/gorelease ## preview changes for next release
-	git checkout main
 	./.github/release.sh -d
 	gorelease
 
 .PHONY: util-release-run
 util-release-run: ## generate a new release
-	git checkout main
 	./.github/release.sh
 
 .PHONY: util-version-check
