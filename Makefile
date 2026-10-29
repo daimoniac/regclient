@@ -49,25 +49,25 @@ ifeq "$(strip $(VER_BUMP))" ''
 		-u "$(shell id -u):$(shell id -g)" \
 		$(VER_BUMP_CONTAINER)
 endif
-MARKDOWN_LINT_VER?=v0.23.2
-GOFUMPT_VER?=v0.11.0
+MARKDOWN_LINT_VER?=v0.24.0
+GOFUMPT_VER?=v0.12.0
 GOMAJOR_VER?=v0.15.0
-GOSEC_VER?=v2.29.0
-GO_VULNCHECK_VER?=v1.7.0
-OSV_SCANNER_VER?=v2.5.1
+GOSEC_VER?=v2.30.0
+GO_VULNCHECK_VER?=v1.9.0
+OSV_SCANNER_VER?=v2.7.0
 SYFT?=$(shell command -v syft 2>/dev/null)
 SYFT_CMD_VER:=$(shell [ -x "$(SYFT)" ] && echo "v$$($(SYFT) version | awk '/^Version: / {print $$2}')" || echo "0")
-SYFT_VERSION?=v1.51.1
-SYFT_CONTAINER?=anchore/syft:v1.51.1@sha256:95fe0835e5bebc6f8b1f8acef68d47d63d594ef4c0f25c097ff853b23cbac74c
+SYFT_VERSION?=v1.55.0
+SYFT_CONTAINER?=anchore/syft:v1.55.0@sha256:4cc92b64ca74ffca4c94d4c8fcc01f217731375300be14d0b6eeb2e82eaa110a
 ifneq "$(SYFT_CMD_VER)" "$(SYFT_VERSION)"
 	SYFT=docker run --rm \
 		-v "$(shell pwd)/:$(shell pwd)/" -w "$(shell pwd)" \
 		-u "$(shell id -u):$(shell id -g)" \
 		$(SYFT_CONTAINER)
 endif
-STATICCHECK_VER?=v0.8.1
-CI_DISTRIBUTION_VER?=3.1.1
-CI_ZOT_VER?=v2.1.20
+STATICCHECK_VER?=v0.8.2
+CI_DISTRIBUTION_VER?=3.1.2
+CI_ZOT_VER?=v2.1.22
 
 .PHONY: .FORCE
 .FORCE:
@@ -118,7 +118,7 @@ lint-goimports: $(GOPATH)/bin/goimports
 		exit 1; \
 	fi
 
-# excluding types/platform pending resultion to https://github.com/securego/gosec/issues/1116
+# excluding types/platform, see https://github.com/securego/gosec/issues/1116
 .PHONY: lint-gosec
 lint-gosec: $(GOPATH)/bin/gosec .FORCE ## Run gosec
 	$(GOPATH)/bin/gosec -terse -exclude-dir types/platform ./...
